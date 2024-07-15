@@ -1,83 +1,61 @@
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 import matplotlib.pyplot as plt
 import seaborn as sns
-import re
-from nltk.tokenize import word_tokenize
-from nltk.corpus import stopwords
-import nltk
-from collections import Counter
+import joblib
 
-nltk.download('punkt')
-nltk.download('stopwords')
+train_data = pd.read_csv('train_data.csv')
+test_data = pd.read_csv('test_data.csv')
 
-data = pd.read_csv('reviews.csv')
+X_train = train_data['processed_review']
+y_train = train_data['sentiment']
+X_test = test_data['processed_review']
+y_test = test_data['sentiment']
 
-print("Original data shape:", data.shape)
-print("\nSample data:")
-print(data.head())
+vectorizer = TfidfVectorizer(max_features=5000)
+X_train_vectorized = vectorizer.fit_transform(X_train)
+X_test_vectorized = vectorizer.transform(X_test)
 
-print("\nDataset Info:")
-data.info()
+print(f"Number of features: {X_train_vectorized.shape[1]}")
 
-print("\nMissing values:")
-print(data.isnull().sum())
+model = MultinomialNB()
+model.fit(X_train_vectorized, y_train)
 
-print("\nDataset statistics:")
-print(data.describe())
+y_pred = model.predict(X_test_vectorized)
 
-def preprocess_text(text):
-    text = text.lower()
-    text = re.sub(r'[^a-zA-Z\s]', '', text)
-    tokens = word_tokenize(text)
-    stop_words = set(stopwords.words('english'))
-    tokens = [t for t in tokens if t not in stop_words]
-    return ' '.join(tokens)
+accuracy = accuracy_score(y_test, y_pred)
+print(f"Model accuracy: {accuracy:.2f}")
 
-data['processed_review'] = data['review'].apply(preprocess_text)
+print("\nClassification Report:")
+print(classification_report(y_test, y_pred))
 
-data['sentiment'] = data['processed_review'].apply(lambda x: 1 if 'good' in x or 'great' in x else 0)
-
+cm = confusion_matrix(y_test, y_pred)
 plt.figure(figsize=(8, 6))
-data['sentiment'].value_counts().plot(kind='bar')
-plt.title('Distribution of Sentiments')
-plt.xlabel('Sentiment (0: Negative, 1: Positive)')
-plt.ylabel('Count')
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+plt.title('Confusion Matrix')
+plt.ylabel('True Label')
+plt.xlabel('Predicted Label')
 plt.show()
 
-data['review_length'] = data['processed_review'].str.len()
-plt.figure(figsize=(10, 6))
-sns.histplot(data=data, x='review_length', bins=50)
-plt.title('Distribution of Processed Review Lengths')
-plt.xlabel('Review Length')
-plt.ylabel('Count')
+feature_importance = model.feature_log_prob_[1] - model.feature_log_prob_[0]
+feature_names = vectorizer.get_feature_names_out()
+
+top_features = sorted(zip(feature_importance, feature_names), reverse=True)[:20]
+importance, names = zip(*top_features)
+
+plt.figure(figsize=(12, 6))
+plt.bar(names, importance)
+plt.title('Top 20 Most Important Features')
+plt.xlabel('Features')
+plt.ylabel('Importance')
+plt.xticks(rotation=45, ha='right')
+plt.tight_layout()
 plt.show()
 
-X = data['processed_review']
-y = data['sentiment']
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+joblib.dump(model, 'initial_model.joblib')
+joblib.dump(vectorizer, 'vectorizer.joblib')
 
-print(f"\nTraining samples: {len(X_train)}")
-print(f"Testing samples: {len(X_test)}")
-
-train_data = pd.concat([X_train, y_train], axis=1)
-test_data = pd.concat([X_test, y_test], axis=1)
-train_data.to_csv('train_data.csv', index=False)
-test_data.to_csv('test_data.csv', index=False)
-
-print("\nProcessed data split and saved to CSV files.")
-
-def get_most_common_words(texts, n=20):
-    all_words = [word for text in texts for word in text.split()]
-    word_counts = Counter(all_words)
-    return word_counts.most_common(n)
-
-positive_reviews = X_train[y_train == 1]
-negative_reviews = X_train[y_train == 0]
-
-print("\nMost common words in positive reviews:")
-print(get_most_common_words(positive_reviews))
-
-print("\nMost common words in negative reviews:")
-print(get_most_common_words(negative_reviews))
+print("\nInitial model and vectorizer saved.")
