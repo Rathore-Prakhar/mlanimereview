@@ -2,10 +2,10 @@ import pandas as pd
 import re
 import matplotlib.pyplot as plt
 import nltk
-from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+from collections import Counter
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from wordcloud import WordCloud
 
 nltk.download('punkt')
 nltk.download('stopwords')
@@ -60,15 +60,6 @@ plt.grid(axis='x')
 plt.gca().invert_yaxis()
 plt.show()
 
-positive_reviews = ' '.join(data[data['vader_compound'] > 0.5]['processed_review'])
-wordcloud = WordCloud(width=800, height=400, background_color='white').generate(positive_reviews)
-
-plt.figure(figsize=(10, 5))
-plt.imshow(wordcloud, interpolation='bilinear')
-plt.axis('off')
-plt.title('Word Cloud of Positive Reviews')
-plt.show()
-
 num_reviews = len(data)
 num_titles = data['title'].nunique()
 average_score = data['vader_compound'].mean()
@@ -85,20 +76,136 @@ plt.title('Distribution of VADER Compound Scores')
 plt.grid(axis='y')
 plt.show()
 
-negative_reviews = ' '.join(data[data['vader_compound'] < -0.5]['processed_review'])
-wordcloud_neg = WordCloud(width=800, height=400, background_color='black', colormap='Reds').generate(negative_reviews)
+data['review_length'] = data['processed_review'].apply(lambda x: len(x.split()))
 
-plt.figure(figsize=(10, 5))
-plt.imshow(wordcloud_neg, interpolation='bilinear')
-plt.axis('off')
-plt.title('Word Cloud of Negative Reviews')
+average_length = data.groupby('title')['review_length'].mean().reset_index()
+top_10_length = average_length.sort_values('review_length', ascending=False).head(10)
+
+print("Top 10 shows based on Review Length:")
+print(top_10_length[['title', 'review_length']])
+
+plt.figure(figsize=(12, 8))
+plt.barh(top_10_length['title'], top_10_length['review_length'], color='purple')
+plt.xlabel('Average Review Length (words)')
+plt.title('Top 10 shows by Average Review Length')
+plt.grid(axis='x')
+plt.gca().invert_yaxis()
 plt.show()
 
-neutral_reviews = ' '.join(data[(data['vader_compound'] >= -0.5) & (data['vader_compound'] <= 0.5)]['processed_review'])
-wordcloud_neu = WordCloud(width=800, height=400, background_color='gray', colormap='Blues').generate(neutral_reviews)
+plt.figure(figsize=(10, 5))
+plt.hist(data['review_length'], bins=20, color='orange', edgecolor='black')
+plt.xlabel('Review Length (words)')
+plt.ylabel('Number of Reviews')
+plt.title('Distribution of Review Lengths')
+plt.grid(axis='y')
+plt.show()
+
+category_sentiment = data.groupby('category')['vader_compound'].mean().reset_index()
+
+print("Average VADER compound score by Category:")
+print(category_sentiment)
 
 plt.figure(figsize=(10, 5))
-plt.imshow(wordcloud_neu, interpolation='bilinear')
-plt.axis('off')
-plt.title('Word Cloud of Neutral Reviews')
+plt.bar(category_sentiment['category'], category_sentiment['vader_compound'], color='cyan')
+plt.xlabel('Category')
+plt.ylabel('Average VADER Compound Score')
+plt.title('Average Sentiment Score by Category')
+plt.grid(axis='y')
+plt.show()
+
+if 'date' in data.columns:
+    data['date'] = pd.to_datetime(data['date'])
+    data.set_index('date', inplace=True)
+
+    sentiment_over_time = data['vader_compound'].resample('M').mean()
+
+    plt.figure(figsize=(12, 6))
+    plt.plot(sentiment_over_time, color='red')
+    plt.xlabel('Date')
+    plt.ylabel('Average VADER Compound Score')
+    plt.title('Sentiment Score Trend Over Time')
+    plt.grid(True)
+    plt.show()
+
+top_5_positive = data.nlargest(5, 'vader_compound')[['title', 'review', 'vader_compound']]
+top_5_negative = data.nsmallest(5, 'vader_compound')[['title', 'review', 'vader_compound']]
+
+print("Top 5 Positive Reviews:")
+print(top_5_positive)
+
+print("Top 5 Negative Reviews:")
+print(top_5_negative)
+
+all_words = ' '.join(data['processed_review']).split()
+word_freq = Counter(all_words)
+
+most_common_words = word_freq.most_common(10)
+
+print("Most Common Words in Reviews:")
+print(most_common_words)
+
+words, counts = zip(*most_common_words)
+
+plt.figure(figsize=(10, 5))
+plt.bar(words, counts, color='magenta')
+plt.xlabel('Words')
+plt.ylabel('Frequency')
+plt.title('Most Common Words in Reviews')
+plt.show()
+
+category_counts = data['category'].value_counts()
+
+plt.figure(figsize=(8, 8))
+plt.pie(category_counts, labels=category_counts.index, autopct='%1.1f%%', colors=['lightblue', 'lightgreen', 'lightcoral'])
+plt.title('Review Categories Distribution')
+plt.show()
+
+
+title_sentiment_distribution = data.groupby('title')['vader_compound'].describe().reset_index()
+print("Sentiment Score Distribution by Title:")
+print(title_sentiment_distribution)
+
+plt.figure(figsize=(12, 8))
+data.boxplot(column='vader_compound', by='title', grid=False, rot=90)
+plt.xlabel('Title')
+plt.ylabel('VADER Compound Score')
+plt.title('Sentiment Scores Distribution by Title')
+plt.suptitle('')
+plt.show()
+
+
+if 'date' in data.columns:
+    reviews_per_year = data.resample('Y').size()
+
+    plt.figure(figsize=(12, 6))
+    plt.plot(reviews_per_year, marker='o', linestyle='-', color='blue')
+    plt.xlabel('Year')
+    plt.ylabel('Number of Reviews')
+    plt.title('Number of Reviews per Year')
+    plt.grid(True)
+    plt.show()
+
+if 'date' in data.columns:
+    avg_sentiment_per_year = data['vader_compound'].resample('Y').mean()
+
+    plt.figure(figsize=(12, 6))
+    plt.plot(avg_sentiment_per_year, marker='o', linestyle='-', color='green')
+    plt.xlabel('Year')
+    plt.ylabel('Average VADER Compound Score')
+    plt.title('Average Sentiment Score per Year')
+    plt.grid(True)
+    plt.show()
+
+data['unique_word_count'] = data['processed_review'].apply(lambda x: len(set(x.split())))
+average_unique_words = data.groupby('title')['unique_word_count'].mean().reset_index()
+
+print("Average Unique Words per Review by Title:")
+print(average_unique_words)
+
+plt.figure(figsize=(12, 8))
+plt.barh(average_unique_words['title'], average_unique_words['unique_word_count'], color='brown')
+plt.xlabel('Average Unique Words per Review')
+plt.title('Average Unique Words per Review by Title')
+plt.grid(axis='x')
+plt.gca().invert_yaxis()
 plt.show()
