@@ -1,11 +1,16 @@
 import pandas as pd
 import re
+import numpy as np
 import matplotlib.pyplot as plt
 import nltk
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from collections import Counter
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import networkx as nx
+from textstat import flesch_kincaid_grade
 
 nltk.download('punkt')
 nltk.download('stopwords')
@@ -34,6 +39,18 @@ def categorize_tags(tag):
 data['category'] = data['tags'].apply(categorize_tags)
 
 data = data[data['category'] != 'Uncategorized']
+
+def tfidf_similarity_ranking(data):
+    tfidf = TfidfVectorizer(stop_words='english')
+    tfidf_matrix = tfidf.fit_transform(data['processed_review'])
+    
+    cosine_sim = cosine_similarity(tfidf_matrix.mean(axis=0).reshape(1, -1), tfidf_matrix)
+    
+    sim_scores = list(enumerate(cosine_sim[0]))
+    sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
+    
+    top_shows = [(data['title'].iloc[i], score) for i, score in sim_scores[:10]]
+    return top_shows
 
 analyzer = SentimentIntensityAnalyzer()
 
@@ -209,3 +226,121 @@ plt.title('Average Unique Words per Review by Title')
 plt.grid(axis='x')
 plt.gca().invert_yaxis()
 plt.show()
+
+tfidf_top_shows = tfidf_similarity_ranking(data)
+print("Top 10 shows based on TF-IDF similarity:")
+for show, score in tfidf_top_shows:
+    print(f"{show}: {score:.4f}")
+
+data['engagement_score'] = data['review_length'] * data['unique_word_count']
+engagement_ranking = data.groupby('title')['engagement_score'].mean().sort_values(ascending=False)
+
+print("\nTop 10 shows based on review engagement:")
+print(engagement_ranking.head(10))
+
+sentiment_consistency = data.groupby('title')['vader_compound'].std().sort_values()
+
+print("\nTop 10 shows with most consistent sentiment:")
+print(sentiment_consistency.head(10))
+
+data['readability_score'] = data['review'].apply(lambda x: flesch_kincaid_grade(x))
+readability_ranking = data.groupby('title')['readability_score'].mean().sort_values()
+
+print("\nTop 10 shows with most readable reviews:")
+print(readability_ranking.head(10))
+
+def create_show_network(data):
+    tfidf = TfidfVectorizer(stop_words='english')
+    tfidf_matrix = tfidf.fit_transform(data.groupby('title')['processed_review'].sum())
+    
+    cosine_sim = cosine_similarity(tfidf_matrix)
+    np.fill_diagonal(cosine_sim, 0)
+    
+    G = nx.from_numpy_array(cosine_sim)
+    G = nx.relabel_nodes(G, lambda x: data['title'].unique()[x])
+    
+    pagerank = nx.pagerank(G)
+    return G, pagerank
+
+G, pagerank = create_show_network(data)
+
+print("\nTop 10 shows based on PageRank:")
+top_pagerank = sorted(pagerank.items(), key=lambda x: x[1], reverse=True)[:10]
+for show, score in top_pagerank:
+    print(f"{show}: {score:.4f}")
+
+
+plt.figure(figsize=(12, 8))
+pos = nx.spring_layout(G)
+nx.draw(G, pos, with_labels=True, node_size=1000, node_color='lightblue', 
+        font_size=8, font_weight='bold')
+plt.title("Network of Show Similarities")
+plt.axis('off')
+plt.tight_layout()
+plt.show()
+
+def plot_sentiment_trends(data, top_n=5):
+    top_shows = data.groupby('title')['vader_compound'].mean().nlargest(top_n).index
+    
+    plt.figure(figsize=(12, 6))
+    for show in top_shows:
+        show_data = data[data['title'] == show]
+        show_data.set_index('date')['vader_compound'].resample('M').mean().plot(label=show)
+    
+    plt.xlabel('Date')
+    plt.ylabel('Average Sentiment Score')
+    plt.title(f'Sentiment Trends for Top {top_n} Shows')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+if 'date' in data.columns:
+    plot_sentiment_trends(data)
+
+if 'helpfulness' in data.columns:
+    data['helpfulness_score'] = data['helpfulness'].str.split('/').str[0].astype(float) / \
+                                data['helpfulness'].str.split('/').str[1].astype(float)
+    
+    helpfulness_ranking = data.groupby('title')['helpfulness_score'].mean().sort_values(ascending=False)
+    
+    print("\nTop 10 shows based on review helpfulness:")
+    print(helpfulness_ranking.head(10))
+    
+    plt.figure(figsize=(10, 6))
+    plt.scatter(data['vader_compound'], data['helpfulness_score'], alpha=0.5)
+    plt.xlabel('Sentiment Score')
+    plt.ylabel('Helpfulness Score')
+    plt.title('Sentiment vs Helpfulness')
+    plt.grid(True)
+    plt.show()
+
+if 'verified' in data.columns:
+    verified_ratio = data.groupby('title')['verified'].mean().sort_values(ascending=False)
+    
+    print("\nTop 10 shows with highest ratio of verified reviews:")
+    print(verified_ratio.head(10))
+
+if 'date' in data.columns:
+    data['month'] = data['date'].dt.month
+    monthly_sentiment = data.groupby('month')['vader_compound'].mean()
+    
+    plt.figure(figsize=(10, 6))
+    monthly_sentiment.plot(kind='bar')
+    plt.title('Average Sentiment by Month')
+    plt.xlabel('Month')
+    plt.ylabel('Average Sentiment Score')
+    plt.xticks(range(12), ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                           'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'])
+    plt.grid(axis='y')
+    plt.show()
+
+data['composite_score'] = (
+    data['vader_compound'].rank(pct=True) +
+    data['engagement_score'].rank(pct=True) +
+    data['readability_score'].rank(pct=True, ascending=False)
+) / 3
+
+composite_ranking = data.groupby('title')['composite_score'].mean().sort_values(ascending=False)
+
+print("\nTop 10 shows based on composite score:")
+print(composite_ranking.head(10))
