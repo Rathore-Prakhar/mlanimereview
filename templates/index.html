@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anime Sentiment Analysis</title>
+    <style>
+        .spinner {
+            display: none;
+            width: 50px;
+            height: 50px;
+            border: 5px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #000;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        #results {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Anime Sentiment Analysis</h1>
+    <form id="anime-form">
+        <label for="title">Anime Title:</label>
+        <input type="text" id="title" name="title" required>
+        <button type="submit">Get Details</button>
+    </form>
+    <div class="spinner" id="spinner"></div>
+    <div id="results"></div>
+
+    <script>
+        let requestCount = 0;
+
+        document.getElementById('anime-form').addEventListener('submit', function(event) {
+            event.preventDefault();
+            const title = document.getElementById('title').value;
+            document.getElementById('spinner').style.display = 'block';
+            document.getElementById('results').innerHTML = '';
+            fetch(`/anime/${title}`)
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('spinner').style.display = 'none';
+                    requestCount++;
+                    console.log(`Total requests made: ${requestCount}`);
+                    if (data.error) {
+                        document.getElementById('results').innerHTML = `<p>${data.error}</p>`;
+                    } else {
+                        document.getElementById('results').innerHTML = `
+                            <h2>${data.title}</h2>
+                            <p>Average VADER Compound Score: ${data.average_vader}</p>
+                            <p>Total Reviews: ${data.total_reviews}</p>
+                            <h3>Top Reviews:</h3>
+                            <ul>${data.top_reviews.map(review => `<li>${review.review} (Score: ${review.vader_compound})</li>`).join('')}</ul>
+                            <h3>Most Common Words:</h3>
+                            <ul>${data.word_count.map(word => `<li>${word[0]}: ${word[1]}</li>`).join('')}</ul>
+                            <h3>Review Length Distribution:</h3>
+                            <img src="data:image/png;base64,${data.review_length_dist_url}" alt="Review Length Distribution">
+                            <h3>Sentiment Scores Distribution:</h3>
+                            <img src="data:image/png;base64,${data.sentiment_scores_dist_url}" alt="Sentiment Scores Distribution">
+                        `;
+                    }
+                })
+                .catch(error => {
+                    document.getElementById('spinner').style.display = 'none';
+                    document.getElementById('results').innerHTML = `<p>Error fetching data. Please try again.</p>`;
+                });
+        });
+    </script>
+</body>
+</html>
