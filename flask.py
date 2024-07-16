@@ -14,8 +14,6 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import io
 import base64
 import seaborn as sns
-from transformers import pipeline
-import torch
 
 plt.switch_backend('Agg')
 
@@ -27,9 +25,6 @@ app = Flask(__name__)
 best_model = joblib.load('best_model.joblib')
 vectorizer = joblib.load('vectorizer.joblib')
 data = pd.read_csv('reviews.csv')
-
-device = 0 if torch.cuda.is_available() else -1
-summarizer = pipeline('summarization', model='sshleifer/distilbart-cnn-12-6', device=device)
 
 def preprocess_text(text):
     text = text.lower()
@@ -105,10 +100,10 @@ def batch_predict():
     
     return jsonify(results)
 
-def chunk_text(text, max_length=1024):
+def extract_keywords(text, n=5):
     words = text.split()
-    for i in range(0, len(words), max_length):
-        yield ' '.join(words[i:i + max_length])
+    word_freq = Counter(words)
+    return [word for word, _ in word_freq.most_common(n)]
 
 @app.route('/anime/<title>', methods=['GET'])
 def anime_details(title):
@@ -163,17 +158,9 @@ def anime_details(title):
     confusion_matrix_url = base64.b64encode(img.getvalue()).decode()
 
     top_reviews = anime_data[['review', 'vader_compound']].sort_values(by='vader_compound', ascending=False).head(5).to_dict(orient='records')
-    top_reviews_text = " ".join([review['review'] for review in top_reviews])
-
-    summaries = []
-    for chunk in chunk_text(top_reviews_text, max_length=200):
-        try:
-            summary = summarizer(chunk, max_length=100, min_length=50, do_sample=False)[0]['summary_text']
-            summaries.append(summary)
-        except IndexError as e:
-            summaries.append("Summarization failed due to input length issues.")
-
-    combined_summary = ' '.join(summaries)
+    
+    all_top_reviews_text = " ".join([review['review'] for review in top_reviews])
+    keywords = extract_keywords(preprocess_text(all_top_reviews_text), n=10)
 
     response = {
         'title': title,
@@ -183,7 +170,7 @@ def anime_details(title):
         'confusion_matrix_url': confusion_matrix_url,
         'total_reviews': len(anime_data),
         'top_reviews': top_reviews,
-        'summary': combined_summary,
+        'keywords': keywords,
         'word_count': Counter(' '.join(anime_data['processed_review']).split()).most_common(10),
         'polarity_counts': polarity_counts,
         'most_common_bigrams': most_common_bigrams,
