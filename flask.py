@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify, render_template
 import joblib
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics import confusion_matrix
 import re
 import nltk
 from collections import Counter
@@ -12,6 +13,9 @@ import matplotlib.pyplot as plt
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import io
 import base64
+import seaborn as sns
+from transformers import pipeline
+import torch
 
 plt.switch_backend('Agg')
 
@@ -23,6 +27,9 @@ app = Flask(__name__)
 best_model = joblib.load('best_model.joblib')
 vectorizer = joblib.load('vectorizer.joblib')
 data = pd.read_csv('reviews.csv')
+
+device = 0 if torch.cuda.is_available() else -1
+summarizer = pipeline('summarization', model='sshleifer/distilbart-cnn-12-6', device=device)
 
 def preprocess_text(text):
     text = text.lower()
@@ -61,9 +68,7 @@ data['vader_neutral'] = data['vader_score'].apply(lambda score_dict: score_dict[
 data['vader_positive'] = data['vader_score'].apply(lambda score_dict: score_dict['pos'])
 
 data['review_length'] = data['processed_review'].apply(lambda x: len(x.split()))
-
 data['average_word_length'] = data['processed_review'].apply(lambda x: sum(len(word) for word in x.split()) / len(x.split()))
-
 data['review_polarity'] = data['vader_compound'].apply(lambda x: 'positive' if x > 0 else ('negative' if x < 0 else 'neutral'))
 
 @app.route('/')
@@ -99,6 +104,11 @@ def batch_predict():
         })
     
     return jsonify(results)
+
+def chunk_text(text, max_length=1024):
+    words = text.split()
+    for i in range(0, len(words), max_length):
+        yield ' '.join(words[i:i + max_length])
 
 @app.route('/anime/<title>', methods=['GET'])
 def anime_details(title):
@@ -137,13 +147,43 @@ def anime_details(title):
     bigram_counter = Counter(bigram for review in anime_data['processed_review'] for bigram in bigrams(review.split()))
     most_common_bigrams = bigram_counter.most_common(10)
     
+    y_true = anime_data['category'].apply(lambda x: 1 if x == 'Recommended' else 0).tolist()
+    y_pred = anime_data['processed_review'].apply(lambda x: predict_sentiment(x)[0]).tolist()
+    conf_matrix = confusion_matrix(y_true, y_pred)
+    
+    plt.figure(figsize=(10, 5))
+    sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues', xticklabels=['Negative', 'Positive'], yticklabels=['Negative', 'Positive'])
+    plt.xlabel('Predicted')
+    plt.ylabel('Actual')
+    plt.title('Confusion Matrix')
+    img = io.BytesIO()
+    plt.savefig(img, format='png')
+    plt.close()
+    img.seek(0)
+    confusion_matrix_url = base64.b64encode(img.getvalue()).decode()
+
+    top_reviews = anime_data[['review', 'vader_compound']].sort_values(by='vader_compound', ascending=False).head(5).to_dict(orient='records')
+    top_reviews_text = " ".join([review['review'] for review in top_reviews])
+
+    summaries = []
+    for chunk in chunk_text(top_reviews_text, max_length=200):
+        try:
+            summary = summarizer(chunk, max_length=100, min_length=50, do_sample=False)[0]['summary_text']
+            summaries.append(summary)
+        except IndexError as e:
+            summaries.append("Summarization failed due to input length issues.")
+
+    combined_summary = ' '.join(summaries)
+
     response = {
         'title': title,
         'average_vader': average_vader,
         'review_length_dist_url': review_length_dist_url,
         'sentiment_scores_dist_url': sentiment_scores_dist_url,
+        'confusion_matrix_url': confusion_matrix_url,
         'total_reviews': len(anime_data),
-        'top_reviews': anime_data[['review', 'vader_compound']].sort_values(by='vader_compound', ascending=False).head(5).to_dict(orient='records'),
+        'top_reviews': top_reviews,
+        'summary': combined_summary,
         'word_count': Counter(' '.join(anime_data['processed_review']).split()).most_common(10),
         'polarity_counts': polarity_counts,
         'most_common_bigrams': most_common_bigrams,
