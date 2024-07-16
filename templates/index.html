@@ -5,12 +5,60 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Anime Sentiment Analysis</title>
     <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+
+        h1, h2, h3 {
+            color: #2c3e50;
+        }
+
+        form {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        button {
+            background-color: #3498db;
+            color: #fff;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #2980b9;
+        }
+
         .spinner {
             display: none;
             width: 50px;
             height: 50px;
             border: 5px solid rgba(0, 0, 0, 0.1);
-            border-left-color: #000;
+            border-left-color: #3498db;
             border-radius: 50%;
             animation: spin 1s linear infinite;
             margin: 20px auto;
@@ -22,6 +70,25 @@
 
         #results {
             margin-top: 20px;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        img {
+            max-width: 100%;
+            height: auto;
+            margin-top: 10px;
+            border-radius: 5px;
+        }
+
+        ul {
+            padding-left: 20px;
+        }
+
+        li {
+            margin-bottom: 5px;
         }
     </style>
 </head>
@@ -54,16 +121,18 @@
                     } else {
                         document.getElementById('results').innerHTML = `
                             <h2>${data.title}</h2>
-                            <p>Average VADER Compound Score: ${data.average_vader}</p>
-                            <p>Total Reviews: ${data.total_reviews}</p>
+                            <p><strong>Average VADER Compound Score:</strong> ${data.average_vader.toFixed(2)}</p>
+                            <p><strong>Total Reviews:</strong> ${data.total_reviews}</p>
                             <h3>Top Reviews:</h3>
-                            <ul>${data.top_reviews.map(review => `<li>${review.review} (Score: ${review.vader_compound})</li>`).join('')}</ul>
+                            <ul>${data.top_reviews.map(review => `<li>"${review.review}" (Score: ${review.vader_compound.toFixed(2)})</li>`).join('')}</ul>
                             <h3>Most Common Words:</h3>
                             <ul>${data.word_count.map(word => `<li>${word[0]}: ${word[1]}</li>`).join('')}</ul>
                             <h3>Review Length Distribution:</h3>
                             <img src="data:image/png;base64,${data.review_length_dist_url}" alt="Review Length Distribution">
                             <h3>Sentiment Scores Distribution:</h3>
                             <img src="data:image/png;base64,${data.sentiment_scores_dist_url}" alt="Sentiment Scores Distribution">
+                            <h3>Key Terms from Top Reviews:</h3>
+                            <p>${data.keywords.join(', ')}</p>
                         `;
                     }
                 })
