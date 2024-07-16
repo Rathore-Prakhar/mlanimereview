@@ -7,10 +7,13 @@ import nltk
 from collections import Counter
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
+from nltk.util import bigrams
 import matplotlib.pyplot as plt
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import io
 import base64
+
+plt.switch_backend('Agg')
 
 nltk.download('punkt')
 nltk.download('stopwords')
@@ -56,6 +59,12 @@ data['vader_compound'] = data['vader_score'].apply(lambda score_dict: score_dict
 data['vader_negative'] = data['vader_score'].apply(lambda score_dict: score_dict['neg'])
 data['vader_neutral'] = data['vader_score'].apply(lambda score_dict: score_dict['neu'])
 data['vader_positive'] = data['vader_score'].apply(lambda score_dict: score_dict['pos'])
+
+data['review_length'] = data['processed_review'].apply(lambda x: len(x.split()))
+
+data['average_word_length'] = data['processed_review'].apply(lambda x: sum(len(word) for word in x.split()) / len(x.split()))
+
+data['review_polarity'] = data['vader_compound'].apply(lambda x: 'positive' if x > 0 else ('negative' if x < 0 else 'neutral'))
 
 @app.route('/')
 def home():
@@ -123,6 +132,11 @@ def anime_details(title):
     img.seek(0)
     sentiment_scores_dist_url = base64.b64encode(img.getvalue()).decode()
 
+    polarity_counts = anime_data['review_polarity'].value_counts().to_dict()
+    
+    bigram_counter = Counter(bigram for review in anime_data['processed_review'] for bigram in bigrams(review.split()))
+    most_common_bigrams = bigram_counter.most_common(10)
+    
     response = {
         'title': title,
         'average_vader': average_vader,
@@ -130,7 +144,10 @@ def anime_details(title):
         'sentiment_scores_dist_url': sentiment_scores_dist_url,
         'total_reviews': len(anime_data),
         'top_reviews': anime_data[['review', 'vader_compound']].sort_values(by='vader_compound', ascending=False).head(5).to_dict(orient='records'),
-        'word_count': Counter(' '.join(anime_data['processed_review']).split()).most_common(10)
+        'word_count': Counter(' '.join(anime_data['processed_review']).split()).most_common(10),
+        'polarity_counts': polarity_counts,
+        'most_common_bigrams': most_common_bigrams,
+        'average_word_length': anime_data['average_word_length'].mean()
     }
 
     return jsonify(response)
